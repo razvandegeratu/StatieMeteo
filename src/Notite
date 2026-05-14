@@ -1,0 +1,11 @@
+1. Am facut cod pentru a gasi adresele perifericelor
+
+Output:
+
+Gasit la adresa: 0x3C (OLED)
+Gasit la adresa: 0x77 (Seznor)
+
+0x77 pentru senzor pentru ca am pus la 3.3V in loc de 5V
+
+
+2. O sa fac cod de afisare pentru un mesaj simplu
