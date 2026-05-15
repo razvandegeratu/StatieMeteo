@@ -1,58 +1,187 @@
 #include <avr/io.h>
 #include <util/delay.h>
+#include <avr/pgmspace.h>
 #include <stdio.h>
 
-void uart_init(uint32_t baud) {
-    uint16_t ubrr = F_CPU / 16 / baud - 1;
-    UBRR0H = (uint8_t)(ubrr >> 8);
-    UBRR0L = (uint8_t)ubrr;
-    UCSR0B = (1 << TXEN0); 
-    UCSR0C = (3 << UCSZ00); 
+// ================= COMENZI OLED =================
+typedef enum {
+    OLED_CMD_DISPLAY_OFF      = 0xAE,
+    OLED_CMD_DISPLAY_ON       = 0xAF,
+    OLED_CMD_SET_MEMORY_MODE  = 0x20,
+    OLED_CMD_SET_COLUMN_ADDR  = 0x21,
+    OLED_CMD_SET_PAGE_ADDR    = 0x22,
+    OLED_CMD_SEG_REMAP_FLIP   = 0xA1, 
+    OLED_CMD_COM_SCAN_FLIP    = 0xC8, 
+    OLED_CMD_CHARGE_PUMP      = 0x8D
+} OledCommand;
+
+// ================= DICTIONAR DE FONTURI =================
+const uint8_t font5x7[] PROGMEM = {
+    0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x5F,0x00,0x00, 0x00,0x07,0x00,0x07,0x00, 0x14,0x7F,0x14,0x7F,0x14,
+    0x24,0x2A,0x7F,0x2A,0x12, 0x23,0x13,0x08,0x64,0x62, 0x36,0x49,0x55,0x22,0x50, 0x00,0x05,0x03,0x00,0x00,
+    0x00,0x1C,0x22,0x41,0x00, 0x00,0x41,0x22,0x1C,0x00, 0x08,0x2A,0x1C,0x2A,0x08, 0x08,0x08,0x3E,0x08,0x08,
+    0x00,0x50,0x30,0x00,0x00, 0x08,0x08,0x08,0x08,0x08, 0x00,0x60,0x60,0x00,0x00, 0x20,0x10,0x08,0x04,0x02,
+    0x3E,0x51,0x49,0x45,0x3E, 0x00,0x42,0x7F,0x40,0x00, 0x42,0x61,0x51,0x49,0x46, 0x21,0x41,0x45,0x4B,0x31,
+    0x18,0x14,0x12,0x7F,0x10, 0x27,0x45,0x45,0x45,0x39, 0x3C,0x4A,0x49,0x49,0x30, 0x01,0x71,0x09,0x05,0x03,
+    0x36,0x49,0x49,0x49,0x36, 0x06,0x49,0x49,0x29,0x1E, 0x00,0x36,0x36,0x00,0x00, 0x00,0x56,0x36,0x00,0x00,
+    0x00,0x08,0x14,0x22,0x41, 0x14,0x14,0x14,0x14,0x14, 0x41,0x22,0x14,0x08,0x00, 0x02,0x01,0x51,0x09,0x06,
+    0x32,0x49,0x79,0x41,0x3E, 0x7E,0x11,0x11,0x11,0x7E, 0x7F,0x49,0x49,0x49,0x36, 0x3E,0x41,0x41,0x41,0x22,
+    0x7F,0x41,0x41,0x22,0x1C, 0x7F,0x49,0x49,0x49,0x41, 0x7F,0x09,0x09,0x01,0x01, 0x3E,0x41,0x41,0x51,0x32,
+    0x7F,0x08,0x08,0x08,0x7F, 0x00,0x41,0x7F,0x41,0x00, 0x20,0x40,0x41,0x3F,0x01, 0x7F,0x08,0x14,0x22,0x41,
+    0x7F,0x40,0x40,0x40,0x40, 0x7F,0x02,0x04,0x02,0x7F, 0x7F,0x04,0x08,0x10,0x7F, 0x3E,0x41,0x41,0x41,0x3E,
+    0x7F,0x09,0x09,0x09,0x06, 0x3E,0x41,0x51,0x21,0x5E, 0x7F,0x09,0x19,0x29,0x46, 0x46,0x49,0x49,0x49,0x31,
+    0x01,0x01,0x7F,0x01,0x01, 0x3F,0x40,0x40,0x40,0x3F, 0x1F,0x20,0x40,0x20,0x1F, 0x7F,0x20,0x18,0x20,0x7F,
+    0x63,0x14,0x08,0x14,0x63, 0x03,0x04,0x78,0x04,0x03, 0x61,0x51,0x49,0x45,0x43, 0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00,0x00, 0x20,0x54,0x54,0x54,0x78, 0x7F,0x48,0x44,0x44,0x38, 0x38,0x44,0x44,0x44,0x20,
+    0x38,0x44,0x44,0x48,0x7F, 0x38,0x54,0x54,0x54,0x18, 0x08,0x7E,0x09,0x01,0x02, 0x08,0x14,0x54,0x54,0x3C,
+    0x7F,0x08,0x04,0x04,0x78, 0x00,0x44,0x7D,0x40,0x00, 0x20,0x40,0x44,0x3D,0x00, 0x7F,0x10,0x28,0x44,0x00,
+    0x00,0x41,0x7F,0x40,0x00, 0x7C,0x04,0x18,0x04,0x78, 0x7C,0x08,0x04,0x04,0x78, 0x38,0x44,0x44,0x44,0x38,
+    0x7C,0x14,0x14,0x14,0x08, 0x08,0x14,0x14,0x18,0x7C, 0x7C,0x08,0x04,0x04,0x08, 0x48,0x54,0x54,0x54,0x20,
+    0x04,0x3F,0x44,0x40,0x20, 0x3C,0x40,0x40,0x20,0x7C, 0x1C,0x20,0x40,0x20,0x1C, 0x3C,0x40,0x30,0x40,0x3C,
+    0x44,0x28,0x10,0x28,0x44, 0x0C,0x50,0x50,0x50,0x3C, 0x44,0x64,0x54,0x4C,0x44
+};
+
+// ================= I2C BAZA =================
+void i2c_init(void) { TWSR = 0x00; TWBR = 72; }
+void i2c_start(void) { TWCR = (1<<TWINT)|(1<<TWSTA)|(1<<TWEN); while(!(TWCR & (1<<TWINT))); }
+void i2c_stop(void) { TWCR = (1<<TWINT)|(1<<TWSTO)|(1<<TWEN); }
+void i2c_write(uint8_t data) { TWDR = data; TWCR = (1<<TWINT)|(1<<TWEN); while(!(TWCR & (1<<TWINT))); }
+uint8_t i2c_read(uint8_t ack) { TWCR = (1<<TWINT)|(1<<TWEN) | (ack ? (1<<TWEA) : 0); while(!(TWCR & (1<<TWINT))); return TWDR; }
+
+// ================= DRIVER BME280 =================
+#define BME280_ADDR 0x77
+uint16_t dig_T1, dig_P1;
+int16_t  dig_T2, dig_T3, dig_P2, dig_P3, dig_P4, dig_P5, dig_P6, dig_P7, dig_P8, dig_P9, dig_H2, dig_H4, dig_H5;
+uint8_t  dig_H1, dig_H3; int8_t dig_H6; int32_t t_fine;
+
+void bme280_read_regs(uint8_t reg, uint8_t *data, uint8_t len) {
+    i2c_start(); i2c_write(BME280_ADDR << 1); i2c_write(reg);
+    i2c_start(); i2c_write((BME280_ADDR << 1) | 1);
+    for (uint8_t i = 0; i < len; i++) data[i] = i2c_read(i < len - 1);
+    i2c_stop();
 }
 
-void uart_print(char* s) {
-    while (*s) {
-        while (!(UCSR0A & (1 << UDRE0)));
-        UDR0 = *s++;
+void bme280_init() {
+    uint8_t calib[26], calib2[7];
+    bme280_read_regs(0x88, calib, 26);
+    dig_T1 = (calib[1]<<8)|calib[0]; dig_T2 = (calib[3]<<8)|calib[2]; dig_T3 = (calib[5]<<8)|calib[4];
+    dig_P1 = (calib[7]<<8)|calib[6]; dig_P2 = (calib[9]<<8)|calib[8]; dig_P3 = (calib[11]<<8)|calib[10];
+    dig_P4 = (calib[13]<<8)|calib[12]; dig_P5 = (calib[15]<<8)|calib[14]; dig_P6 = (calib[17]<<8)|calib[16];
+    dig_P7 = (calib[19]<<8)|calib[18]; dig_P8 = (calib[21]<<8)|calib[20]; dig_P9 = (calib[23]<<8)|calib[22];
+    dig_H1 = calib[25];
+    bme280_read_regs(0xE1, calib2, 7);
+    dig_H2 = (calib2[1]<<8)|calib2[0]; dig_H3 = calib2[2];
+    dig_H4 = (calib2[3]<<4)|(calib2[4]&0x0F); dig_H5 = (calib2[5]<<4)|(calib2[4]>>4); dig_H6 = calib2[6];
+    
+    // Setari BME280: Umiditate x1, Temp/Presiune x1, Mod Normal
+    i2c_start(); i2c_write(BME280_ADDR<<1); i2c_write(0xF2); i2c_write(0x01); i2c_stop(); 
+    i2c_start(); i2c_write(BME280_ADDR<<1); i2c_write(0xF4); i2c_write(0x27); i2c_stop(); 
+}
+
+void bme280_read_all(int32_t *temp, uint32_t *press, uint32_t *hum) {
+    uint8_t raw[8]; bme280_read_regs(0xF7, raw, 8); 
+    
+    // Compensare Temperatura
+    int32_t adc_T = ((int32_t)raw[3]<<12) | ((int32_t)raw[4]<<4) | (raw[5]>>4);
+    int32_t var1, var2;
+    var1 = ((((adc_T>>3)-((int32_t)dig_T1<<1)))*((int32_t)dig_T2))>>11;
+    var2 = (((((adc_T>>4)-((int32_t)dig_T1))*((adc_T>>4)-((int32_t)dig_T1)))>>12)*((int32_t)dig_T3))>>14;
+    t_fine = var1 + var2; *temp = (t_fine * 5 + 128) >> 8; 
+
+    // Compensare Presiune
+    int32_t adc_P = ((int32_t)raw[0]<<12) | ((int32_t)raw[1]<<4) | (raw[2]>>4); uint32_t p;
+    var1 = (((int32_t)t_fine)>>1)-(int32_t)64000;
+    var2 = (((var1>>2)*(var1>>2))>>11)*((int32_t)dig_P6); var2 = var2+((var1*((int32_t)dig_P5))<<1);
+    var2 = (var2>>2)+(((int32_t)dig_P4)<<16);
+    var1 = (((dig_P3*(((var1>>2)*(var1>>2))>>13))>>3)+((((int32_t)dig_P2)*var1)>>1))>>18;
+    var1 = ((((32768+var1))*((int32_t)dig_P1))>>15);
+    if(var1==0) { *press=0; } else {
+        p = (((uint32_t)(((int32_t)1048576)-adc_P)-(var2>>12)))*3125;
+        if(p<0x80000000) p=(p<<1)/((uint32_t)var1); else p=(p/((uint32_t)var1))*2;
+        var1 = (((int32_t)dig_P9)*((int32_t)(((p>>3)*(p>>3))>>13)))>>12;
+        var2 = (((int32_t)(p>>2))*((int32_t)dig_P8))>>13;
+        p = (uint32_t)((int32_t)p+((var1+var2+dig_P7)>>4)); *press=p; 
     }
+
+    // Compensare Umiditate
+    int32_t adc_H = ((int32_t)raw[6]<<8)|raw[7]; int32_t v_x1_u32r;
+    v_x1_u32r = (t_fine - ((int32_t)76800));
+    v_x1_u32r = (((((adc_H<<14)-(((int32_t)dig_H4)<<20)-(((int32_t)dig_H5)*v_x1_u32r))+((int32_t)16384))>>15)*(((((((v_x1_u32r*((int32_t)dig_H6))>>10)*(((v_x1_u32r*((int32_t)dig_H3))>>11)+((int32_t)32768)))>>10)+((int32_t)2097152))*((int32_t)dig_H2)+8192)>>14));
+    v_x1_u32r = (v_x1_u32r - (((((v_x1_u32r>>15)*(v_x1_u32r>>15))>>7)*((int32_t)dig_H1))>>4));
+    v_x1_u32r = (v_x1_u32r < 0 ? 0 : v_x1_u32r); v_x1_u32r = (v_x1_u32r > 419430400 ? 419430400 : v_x1_u32r);
+    *hum = (uint32_t)(v_x1_u32r>>12); 
 }
 
-void i2c_init(void) {
-    TWSR = 0x00; 
-    TWBR = 72;   
+// ================= DRIVER OLED =================
+void oled_cmd(uint8_t cmd) { i2c_start(); i2c_write(0x3C<<1); i2c_write(0x00); i2c_write(cmd); i2c_stop(); }
+void oled_init(void) {
+    oled_cmd(OLED_CMD_DISPLAY_OFF); oled_cmd(OLED_CMD_SET_MEMORY_MODE); oled_cmd(0x00); 
+    oled_cmd(OLED_CMD_SEG_REMAP_FLIP); oled_cmd(OLED_CMD_COM_SCAN_FLIP); 
+    oled_cmd(OLED_CMD_CHARGE_PUMP); oled_cmd(0x14); oled_cmd(OLED_CMD_DISPLAY_ON);
 }
-
-uint8_t i2c_scan(uint8_t address) {
-    TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN);
-    while (!(TWCR & (1 << TWINT)));
-
-    TWDR = (address << 1);
-    TWCR = (1 << TWINT) | (1 << TWEN);
-    while (!(TWCR & (1 << TWINT)));
-
-    uint8_t status = (TWSR & 0xF8);
-    
-    TWCR = (1 << TWINT) | (1 << TWSTO) | (1 << TWEN);
-    
-    return (status == 0x18); // 0x18 = ACK (A raspuns!)
+void oled_clear(void) {
+    oled_cmd(OLED_CMD_SET_COLUMN_ADDR); oled_cmd(0); oled_cmd(127);
+    oled_cmd(OLED_CMD_SET_PAGE_ADDR); oled_cmd(0); oled_cmd(7);
+    i2c_start(); i2c_write(0x3C<<1); i2c_write(0x40);
+    for(int i=0; i<1024; i++) i2c_write(0x00); i2c_stop();
 }
+void oled_set_cursor(uint8_t col, uint8_t page) { oled_cmd(0xB0|(page&0x07)); oled_cmd(0x00|(col&0x0F)); oled_cmd(0x10|((col>>4)&0x0F)); }
+void oled_print_char(char c) {
+    if(c<32 || c>122) c=' '; int index = (c-32)*5;
+    i2c_start(); i2c_write(0x3C<<1); i2c_write(0x40);
+    for(int i=0; i<5; i++) i2c_write(pgm_read_byte(&font5x7[index+i]));
+    i2c_write(0x00); i2c_stop();
+}
+void oled_print_str(const char* str) { while(*str) oled_print_char(*str++); }
 
+// ================= PROGRAMUL PRINCIPAL (V1.0) =================
 int main(void) {
-    uart_init(9600);
-    i2c_init();
-    char buffer[50];
+    // 1. Initializare sisteme
+    i2c_init(); 
+    _delay_ms(100);
+    
+    oled_init(); 
+    oled_clear(); 
+    
+    bme280_init(); 
 
-    _delay_ms(2000); 
-    uart_print("\r\n--- Incepe Scanarea I2C ---\r\n");
+    char buffer[30];
+    int32_t t_val; 
+    uint32_t p_val, h_val; 
 
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        if (i2c_scan(addr)) {
-            sprintf(buffer, "Gasit la adresa: 0x%02X\r\n", addr);
-            uart_print(buffer);
-        }
+    // Afisam Header-ul o singura data
+    oled_set_cursor(25, 0); 
+    oled_print_str("STATIE METEO");
+    oled_set_cursor(15, 1); 
+    oled_print_str("V1.0 - Core Test");
+
+    // 2. Bucla Infinita de citire
+    while (1) {
+        // Citim toti parametrii
+        bme280_read_all(&t_val, &p_val, &h_val);
+        
+        // Formatare si printare Temperatura
+        int32_t t_int = t_val / 100;
+        int32_t t_zec = t_val % 100;
+        if (t_zec < 0) t_zec = -t_zec; 
+        sprintf(buffer, "Temp: %ld.%02ld C  ", t_int, t_zec);
+        oled_set_cursor(0, 3); 
+        oled_print_str(buffer);
+        
+        // Formatare si printare Presiune
+        uint32_t pres_hpa = p_val / 100;
+        sprintf(buffer, "Pres: %lu hPa  ", pres_hpa);
+        oled_set_cursor(0, 5); 
+        oled_print_str(buffer);
+        
+        // Formatare si printare Umiditate
+        uint32_t hum_proc = h_val / 1024;
+        sprintf(buffer, "Umid: %lu %%    ", hum_proc);
+        oled_set_cursor(0, 7); 
+        oled_print_str(buffer);
+
+        // Pauza 1 secunda
+        _delay_ms(1000); 
     }
-
-    uart_print("Scanare terminata.\r\n");
-
-    while (1); 
 }
